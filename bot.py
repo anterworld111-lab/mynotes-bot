@@ -10,32 +10,28 @@ from aiogram.types import (
 )
 
 TOKEN = "8854659653:AAFLB5xchIhQtwzlZK3snDKaFJSKx37z_MU"  # <--- Put your bot token here
-ADMIN_ID = 5565654648  # <--- Put your numeric Telegram Admin ID here
+ADMIN_ID = 5565654648  
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Databases in memory for testing
 version_files = {"plus": None, "pro": None}
 buyers = {"plus": set(), "pro": set()}
 
-TEST_MODE = True  # True = Free test mode, False = Real Telegram Stars payments
+TEST_MODE = False  # False = бойовий режим (Telegram Stars)
 
 
-# Main menu for regular users
 def get_main_keyboard():
   return InlineKeyboardMarkup(
       inline_keyboard=[
           [
               InlineKeyboardButton(
-                  text="⭐ Buy Plus (200 Stars / 150 UAH)",
-                  callback_data="buy_plus",
+                  text="⭐ Buy Plus (200 Stars)", callback_data="buy_plus"
               )
           ],
           [
               InlineKeyboardButton(
-                  text="🚀 Buy Pro (500 Stars / 350 UAH)",
-                  callback_data="buy_pro",
+                  text="🚀 Buy Pro (400 Stars)", callback_data="buy_pro"
               )
           ],
       ]
@@ -50,7 +46,7 @@ async def cmd_start(message: Message):
   )
 
 
-# --- BUY / TEST PLUS VERSION ---
+# --- BUY PLUS VERSION ---
 @dp.callback_query(F.data == "buy_plus")
 async def process_buy_plus(callback: CallbackQuery):
   user_id = callback.from_user.id
@@ -59,22 +55,26 @@ async def process_buy_plus(callback: CallbackQuery):
     if version_files["plus"]:
       await callback.message.answer_document(
           document=version_files["plus"],
-          caption=(
-              "🎁 [TEST MODE] Here is your Plus version! You will receive"
-              " automatic updates when a new version is released."
-          ),
+          caption="🎁 [TEST] Here is your Plus version!",
       )
     else:
       await callback.message.answer(
-          "⚠️ Test successful, but the admin hasn't uploaded the Plus file"
-          " yet!"
+          "⚠️ Test successful, but the admin hasn't uploaded the Plus file yet!"
       )
     await callback.answer()
   else:
+    # Перевірка наявності файлу перед виставленням інвойсу
+    if not version_files["plus"]:
+      await callback.answer(
+          "❌ Plus version is currently unavailable! Try again later.",
+          show_alert=True,
+      )
+      return
+
     prices = [LabeledPrice(label="Plus Version", amount=200)]
     await callback.message.answer_invoice(
         title="Plus Version",
-        description="Access to Plus version (200 Stars / 150 UAH)",
+        description="Access to Plus version (200 Stars)",
         prices=prices,
         provider_token="",
         payload="payload_plus",
@@ -83,7 +83,7 @@ async def process_buy_plus(callback: CallbackQuery):
     await callback.answer()
 
 
-# --- BUY / TEST PRO VERSION ---
+# --- BUY PRO VERSION ---
 @dp.callback_query(F.data == "buy_pro")
 async def process_buy_pro(callback: CallbackQuery):
   user_id = callback.from_user.id
@@ -92,10 +92,7 @@ async def process_buy_pro(callback: CallbackQuery):
     if version_files["pro"]:
       await callback.message.answer_document(
           document=version_files["pro"],
-          caption=(
-              "🎁 [TEST MODE] Here is your Pro version! You will receive"
-              " automatic updates when a new version is released."
-          ),
+          caption="🎁 [TEST] Here is your Pro version!",
       )
     else:
       await callback.message.answer(
@@ -103,10 +100,18 @@ async def process_buy_pro(callback: CallbackQuery):
       )
     await callback.answer()
   else:
-    prices = [LabeledPrice(label="Pro Version", amount=500)]
+    # Перевірка наявності файлу перед виставленням інвойсу
+    if not version_files["pro"]:
+      await callback.answer(
+          "❌ Pro version is currently unavailable! Try again later.",
+          show_alert=True,
+      )
+      return
+
+    prices = [LabeledPrice(label="Pro Version", amount=400)]
     await callback.message.answer_invoice(
         title="Pro Version",
-        description="Access to Pro version (500 Stars / 350 UAH)",
+        description="Access to Pro version (400 Stars)",
         prices=prices,
         provider_token="",
         payload="payload_pro",
@@ -118,6 +123,31 @@ async def process_buy_pro(callback: CallbackQuery):
 # --- STARS PAYMENT CONFIRMATION ---
 @dp.pre_checkout_query()
 async def pre_checkout_handler(pre_checkout_query):
+  payload = pre_checkout_query.invoice_payload
+
+  # Подвійна перевірка на випадок, якщо файл видалили під час процесу оплати
+  if payload == "payload_plus" and not version_files["plus"]:
+    await bot.answer_pre_checkout_query(
+        pre_checkout_query.id,
+        ok=False,
+        error_message=(
+            "Sorry, the Plus file is no longer available. Your stars will not"
+            " be charged."
+        ),
+    )
+    return
+
+  if payload == "payload_pro" and not version_files["pro"]:
+    await bot.answer_pre_checkout_query(
+        pre_checkout_query.id,
+        ok=False,
+        error_message=(
+            "Sorry, the Pro file is no longer available. Your stars will not be"
+            " charged."
+        ),
+    )
+    return
+
   await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
 
 
@@ -149,7 +179,7 @@ pending_admin_files = {}
 @dp.message(F.document)
 async def admin_upload_file(message: Message):
   if message.from_user.id != ADMIN_ID:
-    return  # Ignore regular users
+    return
 
   file_id = message.document.file_id
   pending_admin_files[message.from_user.id] = file_id
@@ -174,9 +204,7 @@ async def admin_upload_file(message: Message):
       ]
   )
   await message.answer(
-      "📂 File received. Choose where to apply this file (this will trigger a"
-      " broadcast to buyers):",
-      reply_markup=kb,
+      "📂 File received. Choose where to apply this file:", reply_markup=kb
   )
 
 
@@ -208,7 +236,7 @@ async def confirm_version_update(callback: CallbackQuery):
           document=file_id,
           caption=(
               f"🔄 An update is available for your {version_type.upper()}"
-              " version! Here is the new file:"
+              " version!"
           ),
       )
       success_count += 1
@@ -231,7 +259,6 @@ async def cancel_admin_action(callback: CallbackQuery):
   await callback.answer()
 
 
-# Bot startup
 async def main():
   await dp.start_polling(bot)
 
