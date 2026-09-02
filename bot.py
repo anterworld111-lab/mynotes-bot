@@ -11,12 +11,11 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-# Безпечне читання токена з перемінних середовища Railway (Variables)
-TOKEN = os.getenv("BOT_TOKEN")
+# Зчитуємо токен із змінних Railway (перевіряє і BOT_TOKEN, і TOKEN)
+TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TOKEN")
 ADMIN_ID = 5565654648
 TG_CHANNEL_URL = "https://t.me/mynotesoffc"
 
-bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 
@@ -132,7 +131,7 @@ async def cmd_start(message: types.Message):
         ]
     )
     await message.answer(
-        "Welcome! Choose the required version of MyNotes / Добро пожаловать! Выберите версию MyNotes:",
+        "Welcome! Choose the required version of MyNotes / Ласкаво просимо! Оберіть версію MyNotes:",
         reply_markup=keyboard,
     )
 
@@ -218,10 +217,16 @@ async def main():
     init_db()
     logging.basicConfig(level=logging.INFO)
 
-    # Запуск aiohttp сервера для Godot
+    if not TOKEN:
+        logging.error("CRITICAL: BOT_TOKEN is not set in environment variables!")
+        return
+
+    bot = Bot(token=TOKEN)
+
+    # Веб-сервер API для перевірки ключів з Godot
     app = web.Application()
     app.router.add_post("/api/verify_key", verify_key_endpoint)
-    
+
     port = int(os.getenv("PORT", 8080))
     runner = web.AppRunner(app)
     await runner.setup()
@@ -229,7 +234,7 @@ async def main():
     await site.start()
     logging.info(f"API server running on port {port}")
 
-    # Запуск полінгу телеграм-бота
+    # Запуск бота в Telegram
     await dp.start_polling(bot)
 
 
