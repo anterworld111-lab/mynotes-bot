@@ -237,7 +237,6 @@ async def main():
 
     bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
-    # Найголовніше: повністю видаляємо вебхуки і скидаємо все перед запуском
     try:
         await bot.delete_webhook(drop_pending_updates=True)
     except Exception:
@@ -253,7 +252,6 @@ async def main():
     await site.start()
     logging.info(f"API server running on port {port}")
 
-    # Запускаємо полінг із примусовим очищенням старих апдейтів
     await dp.start_polling(bot, drop_pending_updates=True)
 
 
