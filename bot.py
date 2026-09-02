@@ -12,12 +12,11 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TOKEN")
-ADMIN_ID = 5565654648  # Твій Telegram ID
+ADMIN_ID = 5565654648
 TG_CHANNEL_URL = "https://t.me/mynotesoffc"
 
 dp = Dispatcher()
 
-# Використовуємо папку /data, якщо вона є (для Railway Volume), інакше локальну
 DB_DIR = "/data" if os.path.exists("/data") else "."
 DB_PATH = os.path.join(DB_DIR, "bot_database.db")
 
@@ -108,7 +107,6 @@ def set_file_id(tier: str, file_id: str):
     conn.close()
 
 
-# --- HTTP API ДЛЯ GODOT ---
 async def verify_key_endpoint(request: web.Request):
     try:
         data = await request.json()
@@ -123,7 +121,6 @@ async def verify_key_endpoint(request: web.Request):
     return web.json_response({"valid": is_valid})
 
 
-# --- ТЕЛЕГРАМ БОТ ---
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     keyboard = InlineKeyboardMarkup(
@@ -143,7 +140,7 @@ async def cmd_start(message: types.Message):
 @dp.message(Command("setfile"))
 async def cmd_setfile(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
-        await message.answer("У вас немає прав адміністратора.")
+        await message.answer("❌ У вас немає прав адміністратора.")
         return
 
     keyboard = InlineKeyboardMarkup(
@@ -238,7 +235,6 @@ async def main():
 
     bot = Bot(token=TOKEN)
 
-    # Примусово скидаємо залишки сесій, щоб уникнути TelegramConflictError
     try:
         await bot.delete_webhook(drop_pending_updates=True)
     except Exception:
