@@ -11,7 +11,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-TOKEN = os.getenv("BOT_TOKEN", "8854659653:AAFLB5xchIhQtwzIZK3snDKaFJSKx37z_MU")
+# Безпечне читання токена з перемінних середовища Railway (Variables)
+TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 5565654648
 TG_CHANNEL_URL = "https://t.me/mynotesoffc"
 
