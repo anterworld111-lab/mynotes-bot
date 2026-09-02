@@ -17,13 +17,18 @@ TG_CHANNEL_URL = "https://t.me/mynotesoffc"
 
 dp = Dispatcher()
 
+# Використовуємо папку /data, якщо вона є (для Railway Volume), інакше локальну
+DB_DIR = "/data" if os.path.exists("/data") else "."
+DB_PATH = os.path.join(DB_DIR, "bot_database.db")
+
 
 class AdminUpload(StatesGroup):
     waiting_for_file = State()
 
 
 def init_db():
-    conn = sqlite3.connect("bot_database.db")
+    os.makedirs(DB_DIR, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS licenses (
@@ -44,7 +49,7 @@ def init_db():
 
 
 def generate_unique_key():
-    conn = sqlite3.connect("bot_database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     while True:
         chars = string.ascii_uppercase + string.digits
@@ -57,7 +62,7 @@ def generate_unique_key():
 
 
 def save_key(key: str, user_id: int, tier: str):
-    conn = sqlite3.connect("bot_database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO licenses (key, user_id, tier, is_used) VALUES (?, ?, ?, 0)",
@@ -68,7 +73,7 @@ def save_key(key: str, user_id: int, tier: str):
 
 
 def verify_and_activate_key(key: str) -> bool:
-    conn = sqlite3.connect("bot_database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
         "SELECT key FROM licenses WHERE key = ? AND is_used = 0", (key,)
@@ -84,7 +89,7 @@ def verify_and_activate_key(key: str) -> bool:
 
 
 def get_file_id(tier: str):
-    conn = sqlite3.connect("bot_database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT file_id FROM files WHERE tier = ?", (tier,))
     res = cursor.fetchone()
@@ -93,7 +98,7 @@ def get_file_id(tier: str):
 
 
 def set_file_id(tier: str, file_id: str):
-    conn = sqlite3.connect("bot_database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
         "INSERT OR REPLACE INTO files (tier, file_id) VALUES (?, ?)",
@@ -135,7 +140,6 @@ async def cmd_start(message: types.Message):
     )
 
 
-# КОМАНДА ДЛЯ ЗАВАНТАЖЕННЯ ФАЙЛІВ АДМІНОМ: наприклад /setfile
 @dp.message(Command("setfile"))
 async def cmd_setfile(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
@@ -196,7 +200,6 @@ async def send_free(callback: types.CallbackQuery):
     await callback.answer()
 
 
-# Отримання Plus або Pro для тестів (безкоштовно з генерацією ключа)
 @dp.callback_query(F.data.in_({"get_plus", "get_pro"}))
 async def process_test_get(callback: types.CallbackQuery):
     tier = "plus" if callback.data == "get_plus" else "pro"
@@ -206,7 +209,6 @@ async def process_test_get(callback: types.CallbackQuery):
         await callback.answer(f"Адмін ще не завантажив файл для версії {tier}!", show_alert=True)
         return
 
-    # Генеруємо унікальний одноразовий ключ
     license_key = generate_unique_key()
     save_key(license_key, callback.from_user.id, tier)
 
@@ -214,7 +216,6 @@ async def process_test_get(callback: types.CallbackQuery):
         inline_keyboard=[[InlineKeyboardButton(text="📢 Telegram Channel", url=TG_CHANNEL_URL)]]
     )
 
-    # ВІДПРАВКА КЛЮЧА КОРИСТУВАЧУ В ЧАТ
     await callback.message.answer(
         f"🎉 Дякуємо! Ось ваша тестова версія {tier.upper()}:\n\n"
         f"🔑 <b>Ваш унікальний одноразовий ключ активації:</b>\n"
@@ -223,7 +224,6 @@ async def process_test_get(callback: types.CallbackQuery):
         parse_mode="HTML",
         reply_markup=keyboard,
     )
-    # Відправка самого файлу
     await callback.message.answer_document(document=file_id)
     await callback.answer()
 
@@ -237,6 +237,12 @@ async def main():
         return
 
     bot = Bot(token=TOKEN)
+
+    # Примусово скидаємо залишки сесій, щоб уникнути TelegramConflictError
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+    except Exception:
+        pass
 
     app = web.Application()
     app.router.add_post("/api/verify_key", verify_key_endpoint)
