@@ -27,6 +27,10 @@ class AdminUpload(StatesGroup):
     waiting_for_file = State()
 
 
+class AdminKeyGen(StatesGroup):
+    waiting_for_tier = State()
+
+
 def init_db():
     os.makedirs(DB_DIR, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
@@ -128,13 +132,13 @@ async def cmd_start(message: types.Message):
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📥 Free Version", callback_data="get_free")],
-            [InlineKeyboardButton(text="⭐ Plus Version (Test Free)", callback_data="get_plus")],
-            [InlineKeyboardButton(text="💎 Pro Version (Test Free)", callback_data="get_pro")],
+            [InlineKeyboardButton(text="⭐ Plus Version (100 Stars)", callback_data="buy_plus")],
+            [InlineKeyboardButton(text="💎 Pro Version (250 Stars)", callback_data="buy_pro")],
             [InlineKeyboardButton(text="📢 Telegram Channel", url=TG_CHANNEL_URL)],
         ]
     )
     await message.answer(
-        "Вітаю! Оберіть версію додатка для тесту:",
+        "Welcome! Choose the app version:",
         reply_markup=keyboard,
     )
 
@@ -147,12 +151,45 @@ async def cmd_setfile(message: types.Message, state: FSMContext):
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Free", callback_data="set_free")],
-            [InlineKeyboardButton(text="Plus", callback_data="set_plus")],
-            [InlineKeyboardButton(text="Pro", callback_data="set_pro")],
+            [InlineKeyboardButton(text="Free", callback_data="set_free"), InlineKeyboardButton(text="Plus", callback_data="set_plus"), InlineKeyboardButton(text="Pro", callback_data="set_pro")],
+            [InlineKeyboardButton(text="🔑 Згенерувати ключ", callback_data="admin_gen_key")]
         ]
     )
-    await message.answer("Оберіть версію, для якої хочете завантажити файл:", reply_markup=keyboard)
+    await message.answer("🛠️ [Адмін-панель] Оберіть дію або версію для завантаження файлу:", reply_markup=keyboard)
+
+
+@dp.callback_query(F.data == "admin_gen_key")
+async def admin_gen_key_start(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Помилка доступу", show_alert=True)
+        return
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Plus", callback_data="gen_plus"), InlineKeyboardButton(text="Pro", callback_data="gen_pro")]
+        ]
+    )
+    await callback.message.answer("🔑 Оберіть тір для генерації унікального ключа:", reply_markup=keyboard)
+    await callback.answer()
+
+
+@dp.callback_query(F.data.in_({"gen_plus", "gen_pro"}))
+async def admin_create_key_finish(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Помилка доступу", show_alert=True)
+        return
+
+    tier = "plus" if callback.data == "gen_plus" else "pro"
+    new_key = generate_unique_key()
+    save_key(new_key, ADMIN_ID, tier)
+
+    await callback.message.answer(
+        f"✅ Успішно створено новий ключ для версії <b>{tier.upper()}</b>:\n\n"
+        f"<code>{new_key}</code>\n\n"
+        f"Можете передати його будь-кому.",
+        parse_mode="HTML"
+    )
+    await callback.answer()
 
 
 @dp.callback_query(F.data.startswith("set_"))
@@ -165,7 +202,7 @@ async def process_set_tier(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(tier=tier)
     await state.set_state(AdminUpload.waiting_for_file)
     await callback.message.answer(
-        f"📤 Тепер надішліть файл (.exe або архів) у чат для версії <b>{tier}</b>:",
+        f"📤 [Адмін-панель] Надішліть файл (.exe або архів) у чат для версії <b>{tier}</b>:",
         parse_mode="HTML",
     )
     await callback.answer()
@@ -176,7 +213,7 @@ async def save_new_file(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     if not message.document:
-        await message.answer("Будь ласка, надішліть файл як ДОКУМЕНТ (з файловою іконкою).")
+        await message.answer("🛠️ [Адмін-панель] Будь ласка, надішліть файл як ДОКУМЕНТ.")
         return
 
     data = await state.get_data()
@@ -184,47 +221,71 @@ async def save_new_file(message: types.Message, state: FSMContext):
     file_id = message.document.file_id
     set_file_id(tier, file_id)
     await state.clear()
-    await message.answer(f"✅ Файл для версії <b>{tier}</b> успішно збережено в базу!", parse_mode="HTML")
+    await message.answer(f"✅ [Адмін-панель] Файл для версії <b>{tier}</b> успішно збережено в базу!", parse_mode="HTML")
 
 
 @dp.callback_query(F.data == "get_free")
 async def send_free(callback: types.CallbackQuery):
     file_id = get_file_id("free")
     if not file_id:
-        await callback.answer("Адмін ще не завантажив Free версію!", show_alert=True)
+        await callback.answer("Free version is not uploaded by admin yet!", show_alert=True)
         return
     await callback.message.answer_document(
-        document=file_id, caption="📥 Тримайте безкоштовну версію MyNotes!"
+        document=file_id, caption="📥 Here is your Free version of MyNotes!"
     )
     await callback.answer()
 
 
-@dp.callback_query(F.data.in_({"get_plus", "get_pro"}))
-async def process_test_get(callback: types.CallbackQuery):
-    tier = "plus" if callback.data == "get_plus" else "pro"
+@dp.callback_query(F.data.in_({"buy_plus", "buy_pro"}))
+async def process_buy(callback: types.CallbackQuery):
+    tier = "plus" if callback.data == "buy_plus" else "pro"
+    price = 100 if tier == "plus" else 250
+    title = "MyNotes Plus Version" if tier == "plus" else "MyNotes Pro Version"
+    description = f"License key for MyNotes {tier.upper()} (Lifetime access)"
+
+    prices = [types.LabeledPrice(label=title, amount=price)]
+    
+    await callback.message.answer_invoice(
+        title=title,
+        description=description,
+        payload=f"license_{tier}",
+        currency="XTR",
+        prices=prices
+    )
+    await callback.answer()
+
+
+@dp.pre_checkout_query()
+async def pre_checkout_handler(pre_checkout_query: types.PreCheckoutQuery):
+    await pre_checkout_query.answer(ok=True)
+
+
+@dp.message(F.successful_payment)
+async def successful_payment_handler(message: types.Message):
+    payload = message.successful_payment.invoice_payload
+    tier = payload.split("_")[1] if "_" in payload else "plus"
     file_id = get_file_id(tier)
 
     if not file_id:
-        await callback.answer(f"Адмін ще не завантажив файл для версії {tier}!", show_alert=True)
+        await message.answer("Payment received, but admin has not uploaded the file for this version yet! Contact support.")
         return
 
     license_key = generate_unique_key()
-    save_key(license_key, callback.from_user.id, tier)
+    save_key(license_key, message.from_user.id, tier)
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="📢 Telegram Channel", url=TG_CHANNEL_URL)]]
     )
 
-    await callback.message.answer(
-        f"🎉 Дякуємо! Ось ваша тестова версія {tier.upper()}:\n\n"
-        f"🔑 <b>Ваш унікальний одноразовий ключ активації:</b>\n"
+    await message.answer(
+        f"🎉 Thank you for your purchase! Here is your {tier.upper()} version:\n\n"
+        f"🔑 <b>Your unique activation key:</b>\n"
         f"<code>{license_key}</code>\n\n"
-        f"Скопіюйте його та введіть у додатку при першому запуску (натиснувши Home у грі).",
+        f"Copy it and enter it inside the app on first launch (press Home in-game).",
         parse_mode="HTML",
         reply_markup=keyboard,
     )
-    await callback.message.answer_document(document=file_id)
-    await callback.answer()
+    await message.answer_document(document=file_id)
 
 
 async def main():
