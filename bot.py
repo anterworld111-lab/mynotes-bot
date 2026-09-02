@@ -6,6 +6,8 @@ import sqlite3
 import string
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, types
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -140,7 +142,7 @@ async def cmd_start(message: types.Message):
 @dp.message(Command("setfile"))
 async def cmd_setfile(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ У вас немає прав адміністратора.")
+        await message.answer(f"❌ У вас немає прав адміністратора. Ваш ID: {message.from_user.id}")
         return
 
     keyboard = InlineKeyboardMarkup(
@@ -233,8 +235,9 @@ async def main():
         logging.error("CRITICAL: BOT_TOKEN is not set in environment variables!")
         return
 
-    bot = Bot(token=TOKEN)
+    bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
+    # Найголовніше: повністю видаляємо вебхуки і скидаємо все перед запуском
     try:
         await bot.delete_webhook(drop_pending_updates=True)
     except Exception:
@@ -250,7 +253,8 @@ async def main():
     await site.start()
     logging.info(f"API server running on port {port}")
 
-    await dp.start_polling(bot)
+    # Запускаємо полінг із примусовим очищенням старих апдейтів
+    await dp.start_polling(bot, drop_pending_updates=True)
 
 
 if __name__ == "__main__":
