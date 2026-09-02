@@ -13,7 +13,7 @@ TOKEN = "8854659653:AAFLB5xchIhQtwzlZK3snDKaFJSKx37z_MU"  # <--- Put your bot to
 ADMIN_ID = 5565654648  
   # Твій Telegram ID, щоб бот знав, що ти адмін
 
-bot = Bot(token=API_TOKEN)
+bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 
