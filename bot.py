@@ -11,9 +11,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-# Зчитуємо токен із змінних Railway (перевіряє і BOT_TOKEN, і TOKEN)
 TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TOKEN")
-ADMIN_ID = 5565654648
+ADMIN_ID = 5565654648  # Твій Telegram ID
 TG_CHANNEL_URL = "https://t.me/mynotesoffc"
 
 dp = Dispatcher()
@@ -119,25 +118,30 @@ async def verify_key_endpoint(request: web.Request):
     return web.json_response({"valid": is_valid})
 
 
-# --- ОБРОБНИКИ ТЕЛЕГРАМ ---
+# --- ТЕЛЕГРАМ БОТ ---
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📥 Free Version", callback_data="get_free")],
-            [InlineKeyboardButton(text="⭐ Plus Version", callback_data="buy_plus")],
-            [InlineKeyboardButton(text="💎 Pro Version", callback_data="buy_pro")],
+            [InlineKeyboardButton(text="⭐ Plus Version (Test Free)", callback_data="get_plus")],
+            [InlineKeyboardButton(text="💎 Pro Version (Test Free)", callback_data="get_pro")],
             [InlineKeyboardButton(text="📢 Telegram Channel", url=TG_CHANNEL_URL)],
         ]
     )
     await message.answer(
-        "Welcome! Choose the required version of MyNotes / Ласкаво просимо! Оберіть версію MyNotes:",
+        "Вітаю! Оберіть версію додатка для тесту:",
         reply_markup=keyboard,
     )
 
 
-@dp.message(Command("setfile"), F.from_user.id == ADMIN_ID)
+# КОМАНДА ДЛЯ ЗАВАНТАЖЕННЯ ФАЙЛІВ АДМІНОМ: наприклад /setfile
+@dp.message(Command("setfile"))
 async def cmd_setfile(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("У вас немає прав адміністратора.")
+        return
+
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Free", callback_data="set_free")],
@@ -145,55 +149,64 @@ async def cmd_setfile(message: types.Message, state: FSMContext):
             [InlineKeyboardButton(text="Pro", callback_data="set_pro")],
         ]
     )
-    await message.answer("Choose the version to update the file for:", reply_markup=keyboard)
+    await message.answer("Оберіть версію, для якої хочете завантажити файл:", reply_markup=keyboard)
 
 
-@dp.callback_query(F.data.startswith("set_"), F.from_user.id == ADMIN_ID)
+@dp.callback_query(F.data.startswith("set_"))
 async def process_set_tier(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Помилка доступу", show_alert=True)
+        return
+
     tier = callback.data.split("_")[1]
     await state.update_data(tier=tier)
     await state.set_state(AdminUpload.waiting_for_file)
     await callback.message.answer(
-        f"Now send the new file (.exe or archive) for the <b>{tier}</b> version:",
+        f"📤 Тепер надішліть файл (.exe або архів) у чат для версії <b>{tier}</b>:",
         parse_mode="HTML",
     )
     await callback.answer()
 
 
-@dp.message(AdminUpload.waiting_for_file, F.from_user.id == ADMIN_ID)
+@dp.message(AdminUpload.waiting_for_file)
 async def save_new_file(message: types.Message, state: FSMContext):
-    if not message.document:
-        await message.answer("Please send a file (as a document).")
+    if message.from_user.id != ADMIN_ID:
         return
+    if not message.document:
+        await message.answer("Будь ласка, надішліть файл як ДОКУМЕНТ (з файловою іконкою).")
+        return
+
     data = await state.get_data()
     tier = data.get("tier")
     file_id = message.document.file_id
     set_file_id(tier, file_id)
     await state.clear()
-    await message.answer(f"✅ File for <b>{tier}</b> successfully updated in DB!", parse_mode="HTML")
+    await message.answer(f"✅ Файл для версії <b>{tier}</b> успішно збережено в базу!", parse_mode="HTML")
 
 
 @dp.callback_query(F.data == "get_free")
 async def send_free(callback: types.CallbackQuery):
     file_id = get_file_id("free")
     if not file_id:
-        await callback.answer("Free version is not uploaded by admin yet.", show_alert=True)
+        await callback.answer("Адмін ще не завантажив Free версію!", show_alert=True)
         return
     await callback.message.answer_document(
-        document=file_id, caption="Here is your free version of MyNotes!"
+        document=file_id, caption="📥 Тримайте безкоштовну версію MyNotes!"
     )
     await callback.answer()
 
 
-@dp.callback_query(F.data.in_({"buy_plus", "buy_pro"}))
-async def process_purchase(callback: types.CallbackQuery):
-    tier = "plus" if callback.data == "buy_plus" else "pro"
+# Отримання Plus або Pro для тестів (безкоштовно з генерацією ключа)
+@dp.callback_query(F.data.in_({"get_plus", "get_pro"}))
+async def process_test_get(callback: types.CallbackQuery):
+    tier = "plus" if callback.data == "get_plus" else "pro"
     file_id = get_file_id(tier)
 
     if not file_id:
-        await callback.answer("This version is not uploaded by admin yet.", show_alert=True)
+        await callback.answer(f"Адмін ще не завантажив файл для версії {tier}!", show_alert=True)
         return
 
+    # Генеруємо унікальний одноразовий ключ
     license_key = generate_unique_key()
     save_key(license_key, callback.from_user.id, tier)
 
@@ -201,14 +214,16 @@ async def process_purchase(callback: types.CallbackQuery):
         inline_keyboard=[[InlineKeyboardButton(text="📢 Telegram Channel", url=TG_CHANNEL_URL)]]
     )
 
+    # ВІДПРАВКА КЛЮЧА КОРИСТУВАЧУ В ЧАТ
     await callback.message.answer(
-        f"✅ Payment successful! Here is your software version:\n\n"
-        f"🔑 Your license key (one-time use):\n"
+        f"🎉 Дякуємо! Ось ваша тестова версія {tier.upper()}:\n\n"
+        f"🔑 <b>Ваш унікальний одноразовий ключ активації:</b>\n"
         f"<code>{license_key}</code>\n\n"
-        f"Save it, you will need to enter it on the first launch.",
+        f"Скопіюйте його та введіть у додатку при першому запуску (натиснувши Home у грі).",
         parse_mode="HTML",
         reply_markup=keyboard,
     )
+    # Відправка самого файлу
     await callback.message.answer_document(document=file_id)
     await callback.answer()
 
@@ -223,7 +238,6 @@ async def main():
 
     bot = Bot(token=TOKEN)
 
-    # Веб-сервер API для перевірки ключів з Godot
     app = web.Application()
     app.router.add_post("/api/verify_key", verify_key_endpoint)
 
@@ -234,7 +248,6 @@ async def main():
     await site.start()
     logging.info(f"API server running on port {port}")
 
-    # Запуск бота в Telegram
     await dp.start_polling(bot)
 
 
