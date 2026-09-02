@@ -12,11 +12,13 @@ from aiogram.types import (
 TOKEN = "8854659653:AAFLB5xchIhQtwzlZK3snDKaFJSKx37z_MU"  # <--- Put your bot token here
 ADMIN_ID = 5565654648  
 
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-version_files = {"plus": None, "pro": None}
-buyers = {"plus": set(), "pro": set()}
+# Додали сюди ще й 'free' для безкоштовної версії
+version_files = {"free": None, "plus": None, "pro": None}
+buyers = {"free": set(), "plus": set(), "pro": set()}
 
 TEST_MODE = False  # False = бойовий режим (Telegram Stars)
 
@@ -26,12 +28,24 @@ def get_main_keyboard():
       inline_keyboard=[
           [
               InlineKeyboardButton(
-                  text="⭐ Buy Plus (200 Stars)", callback_data="buy_plus"
+                  text="📥 Download Free Version", callback_data="get_free"
               )
           ],
           [
               InlineKeyboardButton(
-                  text="🚀 Buy Pro (400 Stars)", callback_data="buy_pro"
+                  text="⭐ Buy MyNotes Plus (200 Stars)",
+                  callback_data="buy_plus",
+              )
+          ],
+          [
+              InlineKeyboardButton(
+                  text="🚀 Buy MyNotes Pro (400 Stars)",
+                  callback_data="buy_pro",
+              )
+          ],
+          [
+              InlineKeyboardButton(
+                  text="📢 Official Channel", url="https://t.me/mynotesoffc"
               )
           ],
       ]
@@ -41,9 +55,29 @@ def get_main_keyboard():
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
   await message.answer(
-      "Welcome! Choose the version you want to get:",
+      "Welcome to MyNotes! Choose what you want to get:",
       reply_markup=get_main_keyboard(),
   )
+
+
+# --- GET FREE VERSION ---
+@dp.callback_query(F.data == "get_free")
+async def process_get_free(callback: CallbackQuery):
+  user_id = callback.from_user.id
+  buyers["free"].add(user_id)
+
+  if version_files["free"]:
+    await callback.message.answer_document(
+        document=version_files["free"],
+        caption="🎁 Here is your Free version of MyNotes!",
+    )
+  else:
+    await callback.answer(
+        "❌ Free version is currently unavailable! Admin hasn't uploaded it"
+        " yet.",
+        show_alert=True,
+    )
+  await callback.answer()
 
 
 # --- BUY PLUS VERSION ---
@@ -55,7 +89,7 @@ async def process_buy_plus(callback: CallbackQuery):
     if version_files["plus"]:
       await callback.message.answer_document(
           document=version_files["plus"],
-          caption="🎁 [TEST] Here is your Plus version!",
+          caption="🎁 [TEST] Here is your MyNotes Plus version!",
       )
     else:
       await callback.message.answer(
@@ -63,18 +97,17 @@ async def process_buy_plus(callback: CallbackQuery):
       )
     await callback.answer()
   else:
-    # Перевірка наявності файлу перед виставленням інвойсу
     if not version_files["plus"]:
       await callback.answer(
-          "❌ Plus version is currently unavailable! Try again later.",
+          "❌ MyNotes Plus is currently unavailable! Try again later.",
           show_alert=True,
       )
       return
 
-    prices = [LabeledPrice(label="Plus Version", amount=200)]
+    prices = [LabeledPrice(label="MyNotes Plus", amount=200)]
     await callback.message.answer_invoice(
-        title="Plus Version",
-        description="Access to Plus version (200 Stars)",
+        title="MyNotes Plus",
+        description="Access to MyNotes Plus version (200 Stars)",
         prices=prices,
         provider_token="",
         payload="payload_plus",
@@ -92,7 +125,7 @@ async def process_buy_pro(callback: CallbackQuery):
     if version_files["pro"]:
       await callback.message.answer_document(
           document=version_files["pro"],
-          caption="🎁 [TEST] Here is your Pro version!",
+          caption="🎁 [TEST] Here is your MyNotes Pro version!",
       )
     else:
       await callback.message.answer(
@@ -100,18 +133,17 @@ async def process_buy_pro(callback: CallbackQuery):
       )
     await callback.answer()
   else:
-    # Перевірка наявності файлу перед виставленням інвойсу
     if not version_files["pro"]:
       await callback.answer(
-          "❌ Pro version is currently unavailable! Try again later.",
+          "❌ MyNotes Pro is currently unavailable! Try again later.",
           show_alert=True,
       )
       return
 
-    prices = [LabeledPrice(label="Pro Version", amount=400)]
+    prices = [LabeledPrice(label="MyNotes Pro", amount=400)]
     await callback.message.answer_invoice(
-        title="Pro Version",
-        description="Access to Pro version (400 Stars)",
+        title="MyNotes Pro",
+        description="Access to MyNotes Pro version (400 Stars)",
         prices=prices,
         provider_token="",
         payload="payload_pro",
@@ -125,14 +157,13 @@ async def process_buy_pro(callback: CallbackQuery):
 async def pre_checkout_handler(pre_checkout_query):
   payload = pre_checkout_query.invoice_payload
 
-  # Подвійна перевірка на випадок, якщо файл видалили під час процесу оплати
   if payload == "payload_plus" and not version_files["plus"]:
     await bot.answer_pre_checkout_query(
         pre_checkout_query.id,
         ok=False,
         error_message=(
-            "Sorry, the Plus file is no longer available. Your stars will not"
-            " be charged."
+            "Sorry, the MyNotes Plus file is no longer available. Your stars"
+            " will not be charged."
         ),
     )
     return
@@ -142,8 +173,8 @@ async def pre_checkout_handler(pre_checkout_query):
         pre_checkout_query.id,
         ok=False,
         error_message=(
-            "Sorry, the Pro file is no longer available. Your stars will not be"
-            " charged."
+            "Sorry, the MyNotes Pro file is no longer available. Your stars will"
+            " not be charged."
         ),
     )
     return
@@ -161,14 +192,14 @@ async def successful_payment_handler(message: Message):
     if version_files["plus"]:
       await message.answer_document(
           document=version_files["plus"],
-          caption="🎉 Thank you for purchasing the Plus version!",
+          caption="🎉 Thank you for purchasing MyNotes Plus!",
       )
   elif payload == "payload_pro":
     buyers["pro"].add(user_id)
     if version_files["pro"]:
       await message.answer_document(
           document=version_files["pro"],
-          caption="🎉 Thank you for purchasing the Pro version!",
+          caption="🎉 Thank you for purchasing MyNotes Pro!",
       )
 
 
@@ -188,12 +219,17 @@ async def admin_upload_file(message: Message):
       inline_keyboard=[
           [
               InlineKeyboardButton(
-                  text="📦 Update PLUS Version", callback_data="save_as_plus"
+                  text="📥 Save as FREE Version", callback_data="save_as_free"
               )
           ],
           [
               InlineKeyboardButton(
-                  text="🚀 Update PRO Version", callback_data="save_as_pro"
+                  text="📦 Save as PLUS Version", callback_data="save_as_plus"
+              )
+          ],
+          [
+              InlineKeyboardButton(
+                  text="🚀 Save as PRO Version", callback_data="save_as_pro"
               )
           ],
           [
@@ -204,11 +240,13 @@ async def admin_upload_file(message: Message):
       ]
   )
   await message.answer(
-      "📂 File received. Choose where to apply this file:", reply_markup=kb
+      "📂 File received. Choose what version this file is:", reply_markup=kb
   )
 
 
-@dp.callback_query(F.data.in_({"save_as_plus", "save_as_pro"}))
+@dp.callback_query(
+    F.data.in_({"save_as_free", "save_as_plus", "save_as_pro"})
+)
 async def confirm_version_update(callback: CallbackQuery):
   admin_id = callback.from_user.id
   if admin_id not in pending_admin_files:
@@ -216,39 +254,49 @@ async def confirm_version_update(callback: CallbackQuery):
     return
 
   file_id = pending_admin_files[admin_id]
-  version_type = "plus" if callback.data == "save_as_plus" else "pro"
+
+  if callback.data == "save_as_free":
+    version_type = "free"
+  elif callback.data == "save_as_plus":
+    version_type = "plus"
+  else:
+    version_type = "pro"
 
   version_files[version_type] = file_id
   del pending_admin_files[admin_id]
 
   await callback.message.edit_text(
-      f"✅ File updated for {version_type.upper()}! Starting broadcast..."
+      f"✅ File successfully saved as {version_type.upper()}"
+      + ("!" if version_type == "free" else " and starting broadcast...")
   )
   await callback.answer()
 
-  target_users = buyers[version_type]
-  success_count = 0
+  # Розсилка оновлень тільки для платних версій, якщо це оновлення
+  if version_type != "free":
+    target_users = buyers[version_type]
+    success_count = 0
 
-  for uid in target_users:
-    try:
-      await bot.send_document(
-          chat_id=uid,
-          document=file_id,
-          caption=(
-              f"🔄 An update is available for your {version_type.upper()}"
-              " version!"
-          ),
-      )
-      success_count += 1
-    except Exception:
-      pass
+    for uid in target_users:
+      try:
+        await bot.send_document(
+            chat_id=uid,
+            document=file_id,
+            caption=(
+                f"🔄 An update is available for your MyNotes"
+                f" {version_type.upper()} version!"
+            ),
+        )
+        success_count += 1
+      except Exception:
+        pass
 
-  await bot.send_message(
-      chat_id=admin_id,
-      text=(
-          f"📢 Broadcast completed! Successfully sent to {success_count} users."
-      ),
-  )
+    await bot.send_message(
+        chat_id=admin_id,
+        text=(
+            f"📢 Broadcast completed! Successfully sent to {success_count}"
+            " users."
+        ),
+    )
 
 
 @dp.callback_query(F.data == "cancel_admin")
