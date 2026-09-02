@@ -125,9 +125,9 @@ async def process_set_tier(callback: types.CallbackQuery, state: FSMContext):
   tier = callback.data.split("_")[1]
   await state.update_data(tier=tier)
   await callback.message.answer(
-      f"Now send the new file (.exe or archive) for the **{tier}** version:"
-  )
-  await state.set_state(AdminUpload.waiting_for_file)
+    f"Now send the new file (.exe or archive) for the <b>{tier}</b> version:",
+    parse_mode="HTML",
+)
   await callback.answer()
 
 
