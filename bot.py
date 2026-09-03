@@ -113,6 +113,34 @@ def set_file_id(tier: str, file_id: str):
     conn.close()
 
 
+def user_has_tier(user_id: int, tier: str) -> bool:
+    """Перевіряє, чи купував користувач конкретний тір або вищий"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    if tier == "plus":
+        # Якщо питають за plus, перевіряємо чи є у нього plus або pro
+        cursor.execute("SELECT 1 FROM licenses WHERE user_id = ? AND tier IN ('plus', 'pro')", (user_id,))
+    elif tier == "pro":
+        # Якщо питають за pro, перевіряємо чи є саме pro
+        cursor.execute("SELECT 1 FROM licenses WHERE user_id = ? AND tier = 'pro'", (user_id,))
+    res = cursor.fetchone()
+    conn.close()
+    return res is not None
+
+
+def get_users_by_tier(tier: str) -> list:
+    """Повертає список унікальних user_id покупців цього тіру або вище"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    if tier == "plus":
+        cursor.execute("SELECT DISTINCT user_id FROM licenses WHERE tier IN ('plus', 'pro') AND user_id != ?", (ADMIN_ID,))
+    else:
+        cursor.execute("SELECT DISTINCT user_id FROM licenses WHERE tier = 'pro' AND user_id != ?", (ADMIN_ID,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [row[0] for row in rows]
+
+
 async def verify_key_endpoint(request: web.Request):
     try:
         data = await request.json()
@@ -202,7 +230,7 @@ async def process_set_tier(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(tier=tier)
     await state.set_state(AdminUpload.waiting_for_file)
     await callback.message.answer(
-        f"📤 [Адмін-панель] Надішліть файл (.exe або архів) у чат для версії <b>{tier}</b>:",
+        f"📤 [Адмін-панель] Надішліть новий файл (.exe або архів) у чат для версії <b>{tier}</b> (буде розіслано покупцям):",
         parse_mode="HTML",
     )
     await callback.answer()
@@ -221,7 +249,28 @@ async def save_new_file(message: types.Message, state: FSMContext):
     file_id = message.document.file_id
     set_file_id(tier, file_id)
     await state.clear()
-    await message.answer(f"✅ [Адмін-панель] Файл для версії <b>{tier}</b> успішно збережено в базу!", parse_mode="HTML")
+    
+    await message.answer(f"✅ [Адмін-панель] Файл для версії <b>{tier}</b> збережено! Починаю розсилку покупцям...", parse_mode="HTML")
+
+    # Автоматична розсилка оновлення покупцям цього тіру
+    if tier in ["plus", "pro"]:
+        buyers = get_users_by_tier(tier)
+        success_count = 0
+        for user_id in buyers:
+            try:
+                await message.bot.send_message(
+                    user_id, 
+                    f"🔥 Вийшло оновлення для вашої версії <b>{tier.upper()}</b>! Ось новий файл:"
+                )
+                await message.bot.send_document(user_id, document=file_id)
+                success_count += 1
+                await asyncio.sleep(0.3) # Пауза щоб не зловити ліміти Telegram
+            except Exception as e:
+                logging.error(f"Не вдалося надіслати оновлення користувачу {user_id}: {e}")
+        
+        await message.answer(f"📢 Розсилку завершено! Оновлення отримали <b>{success_count}</b> покупців.", parse_mode="HTML")
+    else:
+        await message.answer("ℹ️ Для Free версії розсилка не потрібна (доступна через кнопку в меню).")
 
 
 @dp.callback_query(F.data == "get_free")
@@ -239,6 +288,18 @@ async def send_free(callback: types.CallbackQuery):
 @dp.callback_query(F.data.in_({"buy_plus", "buy_pro"}))
 async def process_buy(callback: types.CallbackQuery):
     tier = "plus" if callback.data == "buy_plus" else "pro"
+    user_id = callback.from_user.id
+
+    # Перевірка на повторну/зайву покупку
+    if tier == "plus":
+        if user_has_tier(user_id, "plus"):
+            await callback.answer("⚠️ У вас вже є підписка Plus або Pro версії!", show_alert=True)
+            return
+    elif tier == "pro":
+        if user_has_tier(user_id, "pro"):
+            await callback.answer("⚠️ У вас вже активована Pro версія!", show_alert=True)
+            return
+
     price = 100 if tier == "plus" else 250
     title = "MyNotes Plus Version" if tier == "plus" else "MyNotes Pro Version"
     description = f"License key for MyNotes {tier.upper()} (Lifetime access)"
