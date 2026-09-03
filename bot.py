@@ -221,7 +221,9 @@ async def cmd_give_access(message: types.Message):
             )
             await message.bot.send_document(target_user_id, document=file_id)
         except Exception as e:
-            await message.answer(f"⚠️ Доступ у базі збережено, але не вдалося надіслати повідомлення в ЛС користувачу: {e}")
+            await message.answer(f"⚠️ Доступ у базі збережено, але не вдалося надіслати повідомлення в ЛС користувачу (можливо, він не запустив бота): {e}")
+    else:
+        await message.answer("⚠️ Доступ у базі збережено, але файл для цього тіру ще не завантажений через /setfile. Користувач отримає його під час наступного оновлення.")
 
 
 @dp.callback_query(F.data == "admin_gen_key")
