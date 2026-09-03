@@ -118,10 +118,8 @@ def user_has_tier(user_id: int, tier: str) -> bool:
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     if tier == "plus":
-        # Якщо питають за plus, перевіряємо чи є у нього plus або pro
         cursor.execute("SELECT 1 FROM licenses WHERE user_id = ? AND tier IN ('plus', 'pro')", (user_id,))
     elif tier == "pro":
-        # Якщо питають за pro, перевіряємо чи є саме pro
         cursor.execute("SELECT 1 FROM licenses WHERE user_id = ? AND tier = 'pro'", (user_id,))
     res = cursor.fetchone()
     conn.close()
@@ -184,6 +182,51 @@ async def cmd_setfile(message: types.Message, state: FSMContext):
         ]
     )
     await message.answer("🛠️ [Адмін-панель] Оберіть дію або версію для завантаження файлу:", reply_markup=keyboard)
+
+
+@dp.message(Command("give_access"))
+async def cmd_give_access(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ У вас немає прав адміністратора.")
+        return
+
+    args = message.text.split()
+    if len(args) != 3:
+        await message.answer("⚠️ Неправильний формат!\nВикористання: <code>/give_access [user_id] [plus/pro]</code>", parse_mode="HTML")
+        return
+
+    try:
+        target_user_id = int(args[1])
+        tier = args[2].lower()
+    except ValueError:
+        await message.answer("❌ ID користувача має бути числом!")
+        return
+
+    if tier not in ["plus", "pro"]:
+        await message.answer("❌ Тір може бути тільки <code>plus</code> або <code>pro</code>!", parse_mode="HTML")
+        return
+
+    dummy_key = f"MANUAL-{tier.upper()}-{random.randint(1000, 9999)}"
+    save_key(dummy_key, target_user_id, tier)
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE licenses SET is_used = 1 WHERE key = ?", (dummy_key,))
+    conn.commit()
+    conn.close()
+
+    await message.answer(f"✅ Успішно надано безкоштовний доступ до версії <b>{tier.upper()}</b> для користувача з ID: <code>{target_user_id}</code>!", parse_mode="HTML")
+    
+    file_id = get_file_id(tier)
+    if file_id:
+        try:
+            await message.bot.send_message(
+                target_user_id, 
+                f"🎁 Адміністратор надав вам безкоштовний доступ до версії <b>{tier.upper()}</b>! Ось ваш файл оновлення:"
+            )
+            await message.bot.send_document(target_user_id, document=file_id)
+        except Exception as e:
+            await message.answer(f"⚠️ Доступ у базі збережено, але не вдалося надіслати файл в ЛС (можливо, користувач не запустив бота): {e}")
 
 
 @dp.callback_query(F.data == "admin_gen_key")
@@ -252,7 +295,6 @@ async def save_new_file(message: types.Message, state: FSMContext):
     
     await message.answer(f"✅ [Адмін-панель] Файл для версії <b>{tier}</b> збережено! Починаю розсилку покупцям...", parse_mode="HTML")
 
-    # Автоматична розсилка оновлення покупцям цього тіру
     if tier in ["plus", "pro"]:
         buyers = get_users_by_tier(tier)
         success_count = 0
@@ -264,7 +306,7 @@ async def save_new_file(message: types.Message, state: FSMContext):
                 )
                 await message.bot.send_document(user_id, document=file_id)
                 success_count += 1
-                await asyncio.sleep(0.3) # Пауза щоб не зловити ліміти Telegram
+                await asyncio.sleep(0.3)
             except Exception as e:
                 logging.error(f"Не вдалося надіслати оновлення користувачу {user_id}: {e}")
         
@@ -290,7 +332,6 @@ async def process_buy(callback: types.CallbackQuery):
     tier = "plus" if callback.data == "buy_plus" else "pro"
     user_id = callback.from_user.id
 
-    # Перевірка на повторну/зайву покупку
     if tier == "plus":
         if user_has_tier(user_id, "plus"):
             await callback.answer("⚠️ У вас вже є підписка Plus або Pro версії!", show_alert=True)
