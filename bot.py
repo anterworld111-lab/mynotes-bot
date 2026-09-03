@@ -221,9 +221,46 @@ async def cmd_give_access(message: types.Message):
             )
             await message.bot.send_document(target_user_id, document=file_id)
         except Exception as e:
-            await message.answer(f"⚠️ Доступ у базі збережено, але не вдалося надіслати повідомлення в ЛС користувачу (можливо, він не запустив бота): {e}")
+            await message.answer(f"⚠️ Доступ у базі збережено, але не вдалося надіслати повідомлення в ЛС користувачу: {e}")
     else:
-        await message.answer("⚠️ Доступ у базі збережено, але файл для цього тіру ще не завантажений через /setfile. Користувач отримає його під час наступного оновлення.")
+        await message.answer("⚠️ Доступ у базі збережено, але файл для цього тіру ще не завантажений через /setfile.")
+
+
+@dp.message(Command("revoke_access"))
+async def cmd_revoke_access(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ У вас немає прав адміністратора.")
+        return
+
+    args = message.text.split()
+    if len(args) != 2:
+        await message.answer("⚠️ Неправильний формат!\nВикористання: <code>/revoke_access [user_id]</code>", parse_mode="HTML")
+        return
+
+    try:
+        target_user_id = int(args[1])
+    except ValueError:
+        await message.answer("❌ ID користувача має бути числом!")
+        return
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM licenses WHERE user_id = ?", (target_user_id,))
+    deleted_count = cursor.rowcount
+    conn.commit()
+    conn.close()
+
+    if deleted_count > 0:
+        await message.answer(f"✅ Успішно забрано підписку/доступ у користувача <code>{target_user_id}</code> (видалено записів: {deleted_count}).", parse_mode="HTML")
+        try:
+            await message.bot.send_message(
+                target_user_id, 
+                "❌ Ваш доступ до платних версій було відкликано адміністратором."
+            )
+        except Exception:
+            pass
+    else:
+        await message.answer(f"⚠️ У базі не знайдено активних ліцензій для користувача <code>{target_user_id}</code>.", parse_mode="HTML")
 
 
 @dp.callback_query(F.data == "admin_gen_key")
